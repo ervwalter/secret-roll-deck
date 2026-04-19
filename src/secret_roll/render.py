@@ -10,7 +10,6 @@ All fonts are auto-resolved from common macOS / Linux locations; override with -
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -120,32 +119,72 @@ def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) 
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
 
-def _draw_d20(img: Image.Image, cx: float, cy: float, r: float, color: tuple[int, int, int]) -> None:
-    """Icosahedron face-on motif: pointy-top hexagonal silhouette with an
-    inscribed upward triangle (the visible front face).
+# Icosahedron (d20) geometry transcribed from d20.svg's compound path.
+# The SVG uses a nonzero fill-rule with one outer silhouette wound
+# opposite to 10 inner triangular faces, so the faces "cut" out of the
+# silhouette and the negative space between them reads as the wireframe.
+# Coordinates are in the SVG's viewBox (0..100). Bezier corner-smoothing
+# points are preserved to keep the subtle rounded corners faithful.
+_D20_CENTER: tuple[float, float] = (50.0, 50.45)
+_D20_RADIUS: float = 48.15  # half of silhouette height (top-to-bottom)
 
-    Rendered at 4x then downsampled for smooth anti-aliased edges.
+_D20_SILHOUETTE: tuple[tuple[float, float], ...] = (
+    (91.9, 74.7), (92.0, 74.5), (92.0, 74.4), (92.0, 74.3), (92.0, 74.2),
+    (92.0, 74.0), (92.0, 73.9), (92.0, 73.7), (92.0, 27.2), (92.0, 27.1),
+    (92.0, 27.0), (92.0, 26.9), (92.0, 26.8), (92.0, 26.7), (92.0, 26.6),
+    (92.0, 26.5), (91.9, 26.3), (91.9, 26.2), (91.8, 26.1), (91.8, 26.0),
+    (91.7, 25.9), (91.5, 25.8), (91.4, 25.8), (50.9, 2.3),  (49.1, 2.3),
+    (8.8, 25.6),  (8.6, 25.7),  (8.5, 25.7),  (8.4, 25.8),  (8.3, 25.9),
+    (8.2, 26.0),  (8.1, 26.1),  (8.0, 26.2),  (8.0, 26.3),  (7.9, 26.4),
+    (7.9, 26.5),  (7.9, 26.6),  (7.9, 26.7),  (7.9, 26.8),  (7.9, 26.9),
+    (7.9, 27.0),  (7.9, 27.1),  (7.9, 73.6),  (7.9, 73.9),  (7.9, 74.0),
+    (8.0, 74.3),  (8.2, 74.6),  (8.2, 74.7),  (8.4, 75.0),  (8.6, 75.2),
+    (8.7, 75.2),  (8.8, 75.2),  (49.1, 98.5), (49.2, 98.6), (49.3, 98.6),
+    (49.4, 98.6), (49.5, 98.6), (49.6, 98.6), (49.7, 98.6), (49.9, 98.6),
+    (50.1, 98.6), (50.2, 98.6), (50.4, 98.6), (50.5, 98.6), (50.6, 98.6),
+    (50.7, 98.6), (50.8, 98.5), (91.1, 75.2), (91.2, 75.2), (91.3, 75.2),
+    (91.4, 75.1), (91.5, 75.0), (91.6, 74.9), (91.7, 74.8), (91.8, 74.7),
+)
+
+_D20_FACES: tuple[tuple[tuple[float, float], ...], ...] = (
+    ((11.9, 37.6), (23.1, 65.4), (22.7, 66.3), (12.4, 70.6), (11.5, 70.0), (11.5, 37.7)),
+    ((69.9, 65.2), (30.1, 65.2), (29.5, 64.2), (49.4, 29.7), (50.5, 29.7), (70.4, 64.2)),
+    ((25.6, 61.6), (12.7, 29.7), (13.3, 28.8), (45.5, 27.2), (46.1, 28.2), (26.7, 61.7)),
+    ((69.5, 70.0), (50.5, 93.4), (49.5, 93.4), (30.5, 70.0), (31.0, 68.9), (69.0, 68.9)),
+    ((73.3, 61.7), (53.9, 28.2), (54.5, 27.2), (86.7, 28.8), (87.3, 29.7), (74.4, 61.6)),
+    ((51.8, 22.8), (51.8, 8.2),  (52.8, 7.6),  (82.0, 24.5), (81.9, 24.9), (52.4, 23.4)),
+    ((47.5, 23.4), (18.0, 24.9), (17.9, 24.5), (47.2, 7.7),  (48.2, 8.3),  (48.2, 22.8)),
+    ((25.5, 69.7), (41.6, 89.6), (41.3, 89.9), (15.0, 74.7), (15.1, 73.5), (24.8, 69.5)),
+    ((75.2, 69.5), (84.9, 73.5), (85.0, 74.7), (58.6, 89.9), (58.3, 89.6), (74.4, 69.7)),
+    ((87.6, 70.6), (77.3, 66.3), (76.9, 65.4), (88.1, 37.6), (88.5, 37.7), (88.5, 70.0)),
+)
+
+
+def _draw_d20(img: Image.Image, cx: float, cy: float, r: float, color: tuple[int, int, int]) -> None:
+    """Render a d20 by replaying d20.svg's compound path.
+
+    ``r`` is the silhouette circumradius (half the top-to-bottom height).
+    Drawn at 4x and downsampled for smooth anti-aliased edges.
     """
     SCALE = 4
-    pad = int(r * 0.2) + 2
-    box = int((r + pad) * 2 * SCALE)
+    pad = max(2, int(r * 0.05)) * SCALE
+    half = int(r * SCALE) + pad
+    box = half * 2
     aa = Image.new("RGBA", (box, box), (0, 0, 0, 0))
     d = ImageDraw.Draw(aa)
-    ax = ay = box / 2
-    ar = r * SCALE
-    stroke = max(3, int(ar * 0.09))
 
-    # Pointy-top hexagon vertices, clockwise from top.
-    angles = [90, 30, -30, -90, -150, 150]
-    hex_pts = [
-        (ax + ar * math.cos(math.radians(a)), ay - ar * math.sin(math.radians(a)))
-        for a in angles
-    ]
-    d.polygon(hex_pts, outline=color, width=stroke)
+    svg_scale = (r * SCALE) / _D20_RADIUS
+    csx, csy = _D20_CENTER
 
-    # Inscribed upward triangle at alternate vertices (top, lower-right, lower-left).
-    tri = [hex_pts[0], hex_pts[2], hex_pts[4]]
-    d.polygon(tri, outline=color, width=stroke)
+    def xf(pt: tuple[float, float]) -> tuple[float, float]:
+        return (half + (pt[0] - csx) * svg_scale, half + (pt[1] - csy) * svg_scale)
+
+    fill_rgba = (*color, 255)
+    d.polygon([xf(p) for p in _D20_SILHOUETTE], fill=fill_rgba)
+    # Overwrite (not composite) each face back to transparent — this replicates
+    # the SVG's nonzero-rule "cut" of the faces out of the silhouette.
+    for face in _D20_FACES:
+        d.polygon([xf(p) for p in face], fill=(0, 0, 0, 0))
 
     small = aa.resize((box // SCALE, box // SCALE), Image.LANCZOS)
     img.paste(small, (int(cx - small.width / 2), int(cy - small.height / 2)), small)
