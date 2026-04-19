@@ -2,6 +2,16 @@
 
 Generate a fair-mix lookup card deck for Pathfinder secret d20 rolls.
 
+<p align="center">
+  <img src="samples/card_front_01.png" alt="Card front sample" width="320"/>
+</p>
+
+**Don't want to run the tool?** A complete ready-to-print sample deck from
+`--seed 42` is committed under [`samples/`](samples/): all 60 card fronts, both
+card backs (text and art), and a contact sheet. Download directly and upload to
+MakePlayingCards, DriveThruCards, GameCrafter, etc.
+
+
 Players roll a d20 in the open and announce `face, +mod`. The GM draws a card
 from this deck and reads the corresponding *secret* value from the table —
 translating "11, +14" into whatever `11` maps to on that card, then adding the
