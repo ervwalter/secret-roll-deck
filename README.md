@@ -28,8 +28,9 @@ rolled value — no systematic skew.
 
 Cards 1–20 come from the first Latin square, 21–40 from the second, 41–60 from
 the third. **Each contiguous 20-card group is itself a fully-balanced subdeck**,
-so if you want a thinner deck, just take the first 20 or first 40 cards and
-discard the rest. Shuffle the deck before play.
+so if you want a thinner deck, pass `--size 20` or `--size 40` (the front-of-card
+counter reflects the chosen size, e.g. `No. 05 / 20`). Shuffle the deck before
+play.
 
 Latin squares are sampled with the **Jacobson–Matthews** Markov chain (Electron.
 J. Combin. 3, 1996) which mixes over the space of 20×20 Latin squares. See
@@ -47,7 +48,8 @@ Outputs in `./out/`:
 - `deck.json` — canonical mapping (`{card_id, mapping[20]}`)
 - `deck.csv` — spreadsheet view (one row per card)
 - `card_front_01.png` … `card_front_60.png` — 825×1125 px @ 300 DPI
-- `card_back.png` — clean text-only back
+- `card_back.png` — clean text-only back (light)
+- `card_back_dark.png` — same back in dark mode (light type on charcoal)
 - `deck_contact_sheet.png` — all 60 fronts in a 6×10 grid for review
 
 ### Custom card-back art

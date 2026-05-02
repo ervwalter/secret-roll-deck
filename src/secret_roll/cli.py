@@ -7,7 +7,7 @@ import secrets
 import sys
 from pathlib import Path
 
-from .latin import Deck, build_deck, verify_deck, write_deck
+from .latin import ALLOWED_DECK_SIZES, Deck, build_deck, verify_deck, write_deck
 from .render import CardGeometry, render_deck, resolve_fonts
 
 
@@ -15,8 +15,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     seed = args.seed if args.seed is not None else secrets.randbits(64)
     out_dir = Path(args.out_dir)
 
-    print(f"Generating deck with seed={seed}")
-    deck = build_deck(seed)
+    print(f"Generating deck with seed={seed}, size={args.size}")
+    deck = build_deck(seed, num_cards=args.size)
     report = verify_deck(deck)
     if not report["ok"]:
         print("Deck verification FAILED:", file=sys.stderr)
@@ -48,8 +48,15 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     print(f"Rendering cards at {geom.w}x{geom.h} px, {geom.dpi} DPI, bleed={geom.bleed_in}\"...")
     if art_back_path:
         print(f"Using art back: {art_back_path}")
-    info = render_deck(deck, out_dir, geom, fonts, art_back_path=art_back_path, art_inset_in=args.art_inset_inches)
-    msg = f"Wrote {len(info['front_paths'])} front PNGs + back PNG"
+    info = render_deck(
+        deck,
+        out_dir,
+        geom,
+        fonts,
+        art_back_path=art_back_path,
+        art_inset_in=args.art_inset_inches,
+    )
+    msg = f"Wrote {len(info['front_paths'])} front PNGs + light + dark back PNGs"
     if info.get("art_back_path"):
         msg += " + alternate art back"
     msg += f" + contact sheet to {out_dir}/"
@@ -78,6 +85,13 @@ def main(argv: list[str] | None = None) -> int:
 
     g = sub.add_parser("generate", help="Build deck + render cards")
     g.add_argument("--seed", type=int, default=None, help="Deterministic seed (default: random)")
+    g.add_argument(
+        "--size",
+        type=int,
+        choices=ALLOWED_DECK_SIZES,
+        default=ALLOWED_DECK_SIZES[-1],
+        help=f"Number of cards in the deck (default: {ALLOWED_DECK_SIZES[-1]})",
+    )
     g.add_argument("--out-dir", default="out", help="Output directory (default: ./out)")
     g.add_argument("--dpi", type=int, default=300, help="Render DPI (default: 300)")
     g.add_argument("--bleed-inches", type=float, default=0.125, help="Bleed on each side in inches (default: 0.125)")

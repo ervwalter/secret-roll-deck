@@ -22,6 +22,7 @@ from pathlib import Path
 N = 20
 SQUARES_PER_DECK = 3
 DECK_SIZE = N * SQUARES_PER_DECK
+ALLOWED_DECK_SIZES = (N, 2 * N, 3 * N)
 
 
 def _jacobson_matthews(n: int, rng: random.Random, iterations: int | None = None) -> list[list[int]]:
@@ -125,21 +126,25 @@ class Deck:
         return rows
 
 
-def build_deck(seed: int) -> Deck:
-    """Build a 60-card deck as three contiguous 20-card Latin-square subdecks.
+def build_deck(seed: int, num_cards: int = DECK_SIZE) -> Deck:
+    """Build a deck of 20, 40, or 60 cards as contiguous 20-card Latin-square subdecks.
 
     Cards 1-20 come from the first Latin square, 21-40 from the second, 41-60
     from the third. Each contiguous group of 20 is itself a fully-balanced
     subdeck (each actual value appears exactly once per announced column), so a
-    user who wants a thinner deck can simply take the first 20 or 40 cards.
+    smaller deck simply uses fewer subdecks.
 
     Rows are emitted in Jacobson-Matthews' natural (already-randomized) order --
     the user is expected to shuffle the physical deck before play.
     """
+    if num_cards not in ALLOWED_DECK_SIZES:
+        raise ValueError(f"num_cards must be one of {ALLOWED_DECK_SIZES}, got {num_cards}")
+
+    num_squares = num_cards // N
     rng = random.Random(seed)
 
     def _materialize() -> list[list[list[int]]]:
-        return [_jacobson_matthews(N, rng) for _ in range(SQUARES_PER_DECK)]
+        return [_jacobson_matthews(N, rng) for _ in range(num_squares)]
 
     def _rows_from(squares: list[list[list[int]]]) -> list[list[int]]:
         return [[v + 1 for v in row] for sq in squares for row in sq]
@@ -151,7 +156,7 @@ def build_deck(seed: int) -> Deck:
     for attempt in range(6):
         if len(set(map(tuple, rows))) == len(rows):
             break
-        squares[attempt % SQUARES_PER_DECK] = _jacobson_matthews(N, rng)
+        squares[attempt % num_squares] = _jacobson_matthews(N, rng)
         rows = _rows_from(squares)
     else:
         raise RuntimeError("Could not produce a deck with unique cards after 6 resample rounds")
@@ -163,14 +168,15 @@ def build_deck(seed: int) -> Deck:
 def verify_deck(deck: Deck) -> dict:
     errors: list[str] = []
 
-    if len(deck.cards) != DECK_SIZE:
-        errors.append(f"expected {DECK_SIZE} cards, got {len(deck.cards)}")
+    deck_size = len(deck.cards)
+    if deck_size not in ALLOWED_DECK_SIZES:
+        errors.append(f"expected deck size in {ALLOWED_DECK_SIZES}, got {deck_size}")
 
     for card in deck.cards:
         if sorted(card.mapping) != list(range(1, N + 1)):
             errors.append(f"card {card.card_id} is not a permutation of 1..{N}: {card.mapping}")
 
-    expected_per_value = DECK_SIZE // N
+    expected_per_value = max(deck_size // N, 1)
     for col in range(N):
         counts = [0] * (N + 1)
         for card in deck.cards:
@@ -184,7 +190,8 @@ def verify_deck(deck: Deck) -> dict:
 
     # Each contiguous 20-card subdeck should itself be a balanced Latin square,
     # so that users can take only the first 20 or 40 cards for a thinner deck.
-    for sub_idx in range(SQUARES_PER_DECK):
+    num_subdecks = deck_size // N
+    for sub_idx in range(num_subdecks):
         start = sub_idx * N
         sub = deck.cards[start : start + N]
         if len(sub) != N:
@@ -205,7 +212,7 @@ def verify_deck(deck: Deck) -> dict:
         seen.add(key)
 
     return {
-        "deck_size": len(deck.cards),
+        "deck_size": deck_size,
         "n": N,
         "expected_per_value_per_column": expected_per_value,
         "errors": errors,

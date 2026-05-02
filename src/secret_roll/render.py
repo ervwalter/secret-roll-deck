@@ -24,6 +24,12 @@ HAIRLINE = (180, 176, 168)
 PAPER = (250, 246, 236)
 ACCENT = (118, 52, 48)  # deep oxblood; the only non-neutral hue
 
+# Dark-mode back palette: deep charcoal ground with paper-tone foreground.
+DARK_BG = (26, 24, 28)
+DARK_INK = (236, 230, 218)
+DARK_MUTED = (158, 152, 142)
+DARK_ACCENT = (178, 86, 78)  # brighter oxblood so it reads on the dark ground
+
 
 @dataclass
 class CardGeometry:
@@ -190,7 +196,7 @@ def _draw_d20(img: Image.Image, cx: float, cy: float, r: float, color: tuple[int
     img.paste(small, (int(cx - small.width / 2), int(cy - small.height / 2)), small)
 
 
-def render_card_front(card: Card, fonts: Fonts, geom: CardGeometry) -> Image.Image:
+def render_card_front(card: Card, fonts: Fonts, geom: CardGeometry, deck_size: int = 3 * N) -> Image.Image:
     img = Image.new("RGB", (geom.w, geom.h), PAPER)
     draw = ImageDraw.Draw(img)
 
@@ -215,7 +221,7 @@ def render_card_front(card: Card, fonts: Fonts, geom: CardGeometry) -> Image.Ima
     _draw_d20(img, geom.w / 2, d20_cy, 18, ACCENT)
 
     id_font = fonts.sans(22)
-    id_text = f"No. {card.card_id:02d} / {3 * N}"
+    id_text = f"No. {card.card_id:02d} / {deck_size}"
     id_w, id_h = _text_size(draw, id_text, id_font)
     id_y = d20_cy + 32
     draw.text(((geom.w - id_w) // 2, id_y), id_text, font=id_font, fill=MUTED)
@@ -335,33 +341,32 @@ def render_card_back_from_art(
     return canvas
 
 
-def render_card_back(fonts: Fonts, geom: CardGeometry) -> Image.Image:
-    img = Image.new("RGB", (geom.w, geom.h), PAPER)
+def render_card_back(fonts: Fonts, geom: CardGeometry, dark: bool = False) -> Image.Image:
+    bg = DARK_BG if dark else PAPER
+    fg = DARK_INK if dark else INK
+    accent = DARK_ACCENT if dark else ACCENT
+    hairline = DARK_MUTED if dark else HAIRLINE
+
+    img = Image.new("RGB", (geom.w, geom.h), bg)
     draw = ImageDraw.Draw(img)
 
     safe = geom.safe_inset_px
-    draw.rectangle((safe, safe, geom.w - safe, geom.h - safe), outline=INK, width=4)
+    draw.rectangle((safe, safe, geom.w - safe, geom.h - safe), outline=fg, width=4)
     draw.rectangle(
         (safe + 10, safe + 10, geom.w - safe - 10, geom.h - safe - 10),
-        outline=HAIRLINE,
+        outline=hairline,
         width=1,
     )
 
     cx, cy = geom.w / 2, geom.h / 2
-    _draw_d20(img, cx, cy - 30, 140, ACCENT)
+    _draw_d20(img, cx, cy - 30, 140, accent)
 
     wordmark_font = fonts.serif(72)
-    subtitle_font = fonts.sans(32)
 
     wm = "SECRET ROLL"
     ww, wh = _text_size(draw, wm, wordmark_font)
     wm_y = cy + 150
-    draw.text((cx - ww // 2, wm_y), wm, font=wordmark_font, fill=INK)
-
-    sub = "LOOKUP DECK"
-    sw, sh = _text_size(draw, sub, subtitle_font)
-    sub_y = wm_y + wh + 48
-    draw.text((cx - sw // 2, sub_y), sub, font=subtitle_font, fill=MUTED)
+    draw.text((cx - ww // 2, wm_y), wm, font=wordmark_font, fill=fg)
 
     return img
 
@@ -376,18 +381,24 @@ def render_deck(
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    deck_size = len(deck.cards)
+
     fronts: list[Image.Image] = []
     front_paths: list[Path] = []
     for card in deck.cards:
-        img = render_card_front(card, fonts, geom)
+        img = render_card_front(card, fonts, geom, deck_size=deck_size)
         path = out_dir / f"card_front_{card.card_id:02d}.png"
         img.save(path, dpi=(geom.dpi, geom.dpi), optimize=True)
         fronts.append(img)
         front_paths.append(path)
 
-    back = render_card_back(fonts, geom)
+    back = render_card_back(fonts, geom, dark=False)
     back_path = out_dir / "card_back.png"
     back.save(back_path, dpi=(geom.dpi, geom.dpi), optimize=True)
+
+    dark_back = render_card_back(fonts, geom, dark=True)
+    dark_back_path = out_dir / "card_back_dark.png"
+    dark_back.save(dark_back_path, dpi=(geom.dpi, geom.dpi), optimize=True)
 
     art_back_out: Path | None = None
     if art_back_path is not None:
@@ -395,10 +406,10 @@ def render_deck(
         art_back_out = out_dir / "card_back_art.png"
         art_back.save(art_back_out, dpi=(geom.dpi, geom.dpi), optimize=True)
 
-    # A sheet contact-print of all 60 fronts on a single PNG -- handy for visual
-    # review. 6 cols x 10 rows at 1/4 scale fits on-screen easily.
+    # Contact-sheet grid scales to deck size: 5x4 (20), 5x8 (40), 6x10 (60).
     contact_path = out_dir / "deck_contact_sheet.png"
-    cols, rows = 6, 10
+    grids = {20: (5, 4), 40: (5, 8), 60: (6, 10)}
+    cols, rows = grids.get(deck_size, (6, (deck_size + 5) // 6))
     pad = 12
     thumb_w, thumb_h = geom.w // 4, geom.h // 4
     sheet_w = cols * thumb_w + (cols + 1) * pad
@@ -414,6 +425,7 @@ def render_deck(
     return {
         "front_paths": [str(p) for p in front_paths],
         "back_path": str(back_path),
+        "dark_back_path": str(dark_back_path),
         "art_back_path": str(art_back_out) if art_back_out else None,
         "contact_sheet_path": str(contact_path),
         "dimensions_px": [geom.w, geom.h],
